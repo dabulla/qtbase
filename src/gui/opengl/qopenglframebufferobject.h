@@ -66,6 +66,7 @@ public:
     };
 
     explicit QOpenGLFramebufferObject(const QSize &size, GLenum target = GL_TEXTURE_2D);
+    QOpenGLFramebufferObject(const QSize &size, const QOpenGLFramebufferObjectFormat &format, const GLuint colorAttachment0TextureId);
     QOpenGLFramebufferObject(int width, int height, GLenum target = GL_TEXTURE_2D);
 
     QOpenGLFramebufferObject(const QSize &size, Attachment attachment,
@@ -143,6 +144,7 @@ public:
                                 GLbitfield buffers = GL_COLOR_BUFFER_BIT,
                                 GLenum filter = GL_NEAREST);
 
+    void setTextureExternal(int idx, GLuint texture);
 private:
     Q_DISABLE_COPY(QOpenGLFramebufferObject)
     QScopedPointer<QOpenGLFramebufferObjectPrivate> d_ptr;

@@ -117,8 +117,10 @@ public:
     void init(QOpenGLFramebufferObject *q, const QSize &size,
               QOpenGLFramebufferObject::Attachment attachment,
               GLenum texture_target, GLenum internal_format,
-              GLint samples = 0, bool mipmap = false);
+              GLint samples = 0, bool mipmap = false, GLuint texId = 0);
     void initTexture(int idx);
+    void addExternalTexture(int idx, GLuint texture);
+    void setExternalTexture(int idx, GLuint texture);
     void initColorBuffer(int idx, GLint *samples);
     void initDepthStencilAttachments(QOpenGLContext *ctx, QOpenGLFramebufferObject::Attachment attachment);
 

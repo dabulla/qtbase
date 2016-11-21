@@ -441,12 +441,15 @@ namespace
     {
         funcs->glDeleteTextures(1, &id);
     }
+    void leaveExternalTextureAsIsFunc(QOpenGLFunctions *, GLuint)
+    {
+    }
 }
 
 void QOpenGLFramebufferObjectPrivate::init(QOpenGLFramebufferObject *, const QSize &size,
                                            QOpenGLFramebufferObject::Attachment attachment,
                                            GLenum texture_target, GLenum internal_format,
-                                           GLint samples, bool mipmap)
+                                           GLint samples, bool mipmap, GLuint texId)
 {
     QOpenGLContext *ctx = QOpenGLContext::currentContext();
 
@@ -488,10 +491,13 @@ void QOpenGLFramebufferObjectPrivate::init(QOpenGLFramebufferObject *, const QSi
     format.setInternalTextureFormat(internal_format);
     format.setMipmap(mipmap);
 
-    if (samples == 0)
+    if(texId) {
+        addExternalTexture(0, texId);
+    } else if (samples == 0) {
         initTexture(0);
-    else
+    } else {
         initColorBuffer(0, &samples);
+    }
 
     format.setSamples(int(samples));
 
@@ -548,6 +554,63 @@ void QOpenGLFramebufferObjectPrivate::initTexture(int idx)
         color.guard = new QOpenGLSharedResourceGuard(ctx, texture, freeTextureFunc);
     } else {
         funcs.glDeleteTextures(1, &texture);
+    }
+}
+
+void QOpenGLFramebufferObjectPrivate::addExternalTexture(int idx, GLuint texture)
+{
+    QOpenGLContext *ctx = QOpenGLContext::currentContext();
+
+    funcs.glBindTexture(target, texture);
+
+    funcs.glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    funcs.glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    funcs.glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    funcs.glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    funcs.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + idx,
+                                 target, texture, 0);
+
+    QT_CHECK_GLERROR();
+    funcs.glBindTexture(target, 0);
+    valid = checkFramebufferStatus(ctx);
+
+    ColorAttachment &color(colorAttachments[idx]);
+    if (valid) {
+        color.guard = new QOpenGLSharedResourceGuard(ctx, texture, leaveExternalTextureAsIsFunc);
+    } else {
+        //funcs.glDeleteTextures(1, &texture); //TODO: what to do here?
+    }
+}
+
+void QOpenGLFramebufferObjectPrivate::setExternalTexture(int idx, GLuint texture)
+{
+    QOpenGLContext *ctx = QOpenGLContext::currentContext();
+
+    funcs.glBindTexture(target, texture);
+
+    funcs.glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    funcs.glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    funcs.glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    funcs.glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    ColorAttachment &color(colorAttachments[idx]);
+
+    funcs.glBindFramebuffer(GL_FRAMEBUFFER, fbo());
+    funcs.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + idx,
+                                 target, texture, 0);
+
+    QT_CHECK_GLERROR();
+    funcs.glBindTexture(target, 0);
+    valid = checkFramebufferStatus(ctx);
+    if (valid) {
+        if(color.guard) {
+            //color.guard->free();
+            //delete color.guard; //TODO: why no delete here?
+        }
+        color.guard = new QOpenGLSharedResourceGuard(ctx, texture, leaveExternalTextureAsIsFunc);
+    } else {
+        //funcs.glDeleteTextures(1, &texture); //TODO: what to do here?
     }
 }
 
@@ -908,6 +971,29 @@ QOpenGLFramebufferObject::QOpenGLFramebufferObject(int width, int height, Attach
 
 /*! \overload
 
+    Constructs an OpenGL framebuffer object and binds an existing texture to the
+    buffer.
+
+    The \a size and \a format must describe the given texture. This is to not
+    slow down the initialization by using OpenGL getter functions. Use this
+    method when the creation of underlaying texture can not be done by the
+    application itself. This may be the case for virtual reality devices, which
+    create rendertargets on their own and make them available as GLuints.
+
+    \sa size(), format(), texture()
+*/
+QOpenGLFramebufferObject::QOpenGLFramebufferObject(const QSize &size,
+                                           const QOpenGLFramebufferObjectFormat &format,
+                                           const GLuint colorAttachment0TextureId)
+    : d_ptr(new QOpenGLFramebufferObjectPrivate)
+{
+    Q_D(QOpenGLFramebufferObject);
+    d->init(this, size, format.attachment(), format.textureTarget(), format.internalTextureFormat(),
+            format.samples(), format.mipmap(), colorAttachment0TextureId);
+}
+
+/*! \overload
+
     Constructs an OpenGL framebuffer object and binds a texture to the
     buffer of the given \a size.
 
@@ -1142,6 +1228,20 @@ GLuint QOpenGLFramebufferObject::texture() const
 {
     Q_D(const QOpenGLFramebufferObject);
     return d->colorAttachments[0].guard ? d->colorAttachments[0].guard->id() : 0;
+}
+
+/*!
+    \fn void QOpenGLFramebufferObject::setTextureExternal(int idx, GLuint texture)
+
+    Add a texture to the framebuffer and keep ownership. When using this method
+    \sa format() will not work and must not be called for the attachment at \a idx.
+
+    \sa texture()
+*/
+void QOpenGLFramebufferObject::setTextureExternal(int idx, GLuint texture)
+{
+    Q_D(QOpenGLFramebufferObject);
+    d->setExternalTexture(idx, texture);
 }
 
 /*!
